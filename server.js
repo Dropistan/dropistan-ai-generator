@@ -5,9 +5,7 @@ import helmet from 'helmet';
 
 const app = express();
 
-const PORT = Number(
-  process.env.PORT || 3000
-);
+const PORT = Number(process.env.PORT || 3000);
 
 const CLOUDFLARE_ACCOUNT_ID =
   process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -25,7 +23,6 @@ if (
   console.error(
     'Cloudflare Account ID or API Token missing.'
   );
-
   process.exit(1);
 }
 
@@ -55,22 +52,16 @@ app.use(
 app.use(
   cors({
     origin(origin, callback) {
-
       if (
         !origin ||
         allowedOrigins === '*' ||
         allowedOrigins.includes(origin)
       ) {
-        return callback(
-          null,
-          true
-        );
+        return callback(null, true);
       }
 
       return callback(
-        new Error(
-          'Origin not allowed'
-        )
+        new Error('Origin not allowed')
       );
     },
 
@@ -90,14 +81,13 @@ const CLOUDFLARE_URL =
   `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${MODEL}`;
 
 
-/* =====================================
+/* ===========================
    HEALTH CHECK
-===================================== */
+=========================== */
 
 app.get(
   '/health',
   function(req, res) {
-
     res.json({
       ok: true,
       service:
@@ -106,250 +96,189 @@ app.get(
         'Cloudflare Workers AI',
       model: MODEL
     });
-
   }
 );
 
 
-/* =====================================
-   PRODUCT JSON SCHEMA
-===================================== */
+/* ===========================
+   LICENSE ACCEPT
+=========================== */
 
-const productSchema = {
+app.get(
+  '/api/agree-license',
+  async function(req, res) {
+    try {
+      const response =
+        await fetch(
+          CLOUDFLARE_URL,
+          {
+            method: 'POST',
 
-  type: 'object',
+            headers: {
+              Authorization:
+                `Bearer ${CLOUDFLARE_API_TOKEN}`,
 
-  additionalProperties: false,
+              'Content-Type':
+                'application/json'
+            },
 
-  properties: {
+            body:
+              JSON.stringify({
+                prompt: 'agree'
+              })
+          }
+        );
 
-    detected_product: {
-      type: 'string'
-    },
+      const data =
+        await response.json();
 
-    title: {
-      type: 'string'
-    },
+      return res
+        .status(response.status)
+        .json({
+          ok: response.ok,
+          result: data
+        });
 
-    short_description: {
-      type: 'string'
-    },
+    } catch (error) {
+      console.error(
+        'License error:',
+        error
+      );
 
-    full_description: {
-      type: 'string'
-    },
-
-    vendor: {
-      type: 'string'
-    },
-
-    product_type: {
-      type: 'string'
-    },
-
-    seo_title: {
-      type: 'string'
-    },
-
-    meta_description: {
-      type: 'string'
-    },
-
-    keywords: {
-      type: 'array',
-      items: {
-        type: 'string'
-      }
-    },
-
-    tags: {
-      type: 'array',
-      items: {
-        type: 'string'
-      }
-    },
-
-    key_features: {
-      type: 'array',
-      items: {
-        type: 'string'
-      }
-    },
-
-    alt_text: {
-      type: 'string'
-    },
-
-    handle_suggestion: {
-      type: 'string'
+      return res
+        .status(500)
+        .json({
+          error:
+            'Could not accept model license.'
+        });
     }
-
-  },
-
-  required: [
-    'detected_product',
-    'title',
-    'short_description',
-    'full_description',
-    'vendor',
-    'product_type',
-    'seo_title',
-    'meta_description',
-    'keywords',
-    'tags',
-    'key_features',
-    'alt_text',
-    'handle_suggestion'
-  ]
-
-};
+  }
+);
 
 
-/* =====================================
-   NORMALIZE ARRAYS
-===================================== */
+/* ===========================
+   HELPERS
+=========================== */
 
 function normalizeArray(value) {
-
   if (Array.isArray(value)) {
-
     return value
       .map(String)
       .map(v => v.trim())
       .filter(Boolean);
-
   }
 
-  if (
-    typeof value === 'string'
-  ) {
-
+  if (typeof value === 'string') {
     return value
       .split(',')
       .map(v => v.trim())
       .filter(Boolean);
-
   }
 
   return [];
 }
 
 
-/* =====================================
-   NORMALIZE FINAL RESULT
-===================================== */
-
 function normalizeResult(result) {
-
-  if (
-    !result ||
-    typeof result !== 'object'
-  ) {
-    result = {};
-  }
-
   return {
-
     detected_product:
       String(
-        result.detected_product || ''
+        result?.detected_product || ''
       ),
 
     title:
       String(
-        result.title || ''
+        result?.title || ''
       ),
 
     short_description:
       String(
-        result.short_description || ''
+        result?.short_description || ''
       ),
 
     full_description:
       String(
-        result.full_description || ''
+        result?.full_description || ''
       ),
 
     vendor:
       String(
-        result.vendor || 'Generic'
+        result?.vendor || 'Generic'
       ),
 
     product_type:
       String(
-        result.product_type || ''
+        result?.product_type || ''
       ),
 
     seo_title:
       String(
-        result.seo_title || ''
+        result?.seo_title || ''
       ),
 
     meta_description:
       String(
-        result.meta_description || ''
+        result?.meta_description || ''
       ),
 
     keywords:
       normalizeArray(
-        result.keywords
+        result?.keywords
       ),
 
     tags:
       normalizeArray(
-        result.tags
+        result?.tags
       ),
 
     key_features:
       normalizeArray(
-        result.key_features
+        result?.key_features
       ),
 
     alt_text:
       String(
-        result.alt_text || ''
+        result?.alt_text || ''
       ),
 
     handle_suggestion:
       String(
-        result.handle_suggestion || ''
+        result?.handle_suggestion || ''
       )
-
   };
-
 }
 
 
-/* =====================================
-   REMOVE MARKDOWN IF AI RETURNS TEXT
-===================================== */
+function stripCodeFences(text) {
+  return text
+    .replace(
+      /^```json\s*/i,
+      ''
+    )
+    .replace(
+      /^```\s*/i,
+      ''
+    )
+    .replace(
+      /\s*```$/i,
+      ''
+    )
+    .trim();
+}
 
-function cleanJsonText(text) {
 
+function extractObjectFromText(text) {
   if (
-    typeof text !== 'string'
+    typeof text !== 'string' ||
+    !text.trim()
   ) {
-    return '';
+    return null;
   }
 
   let cleaned =
-    text.trim();
-
-  cleaned =
-    cleaned
-      .replace(
-        /^```json\s*/i,
-        ''
-      )
-      .replace(
-        /^```\s*/i,
-        ''
-      )
-      .replace(
-        /\s*```$/i,
-        ''
-      )
-      .trim();
+    stripCodeFences(
+      text.trim()
+    );
 
   const firstBrace =
     cleaned.indexOf('{');
@@ -359,233 +288,128 @@ function cleanJsonText(text) {
 
   if (
     firstBrace !== -1 &&
-    lastBrace !== -1
+    lastBrace !== -1 &&
+    lastBrace > firstBrace
   ) {
-
     cleaned =
       cleaned.slice(
         firstBrace,
         lastBrace + 1
       );
-
   }
 
-  return cleaned;
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    console.error(
+      'JSON parse failed.'
+    );
 
+    console.error(
+      'RAW TEXT:',
+      text
+    );
+
+    return null;
+  }
 }
 
 
-/* =====================================
-   EXTRACT CLOUDFLARE RESPONSE
-===================================== */
-
 function extractProductObject(raw) {
-
-  const response =
-    raw?.result?.response;
-
-  /*
-    BEST CASE:
-    JSON Mode returns an object
-  */
-
-  if (
-    response &&
-    typeof response === 'object' &&
-    !Array.isArray(response)
-  ) {
-
-    return response;
-
+  if (!raw) {
+    return null;
   }
 
+  /*
+   * CASE 1:
+   * Cloudflare returns:
+   * result.response = object
+   */
+  if (
+    raw?.result?.response &&
+    typeof raw.result.response ===
+      'object' &&
+    !Array.isArray(
+      raw.result.response
+    )
+  ) {
+    return raw.result.response;
+  }
 
   /*
-    FALLBACK:
-    Model returns JSON string
-  */
-
+   * CASE 2:
+   * Cloudflare returns:
+   * result.response = string
+   */
   if (
-    typeof response === 'string'
+    typeof raw?.result?.response ===
+      'string'
   ) {
+    const parsed =
+      extractObjectFromText(
+        raw.result.response
+      );
 
-    const cleaned =
-      cleanJsonText(response);
-
-    if (cleaned) {
-
-      try {
-
-        return JSON.parse(
-          cleaned
-        );
-
-      } catch (error) {
-
-        console.error(
-          'Could not parse response string.'
-        );
-
-        console.error(
-          response
-        );
-
-      }
-
+    if (parsed) {
+      return parsed;
     }
-
   }
 
-
   /*
-    SOME CLOUDFLARE RESPONSES
-    MAY RETURN RESULT DIRECTLY
-  */
-
+   * CASE 3:
+   * Product fields are directly
+   * inside result
+   */
   if (
     raw?.result &&
-    typeof raw.result === 'object' &&
-    !Array.isArray(raw.result)
+    typeof raw.result === 'object'
   ) {
-
-    const possibleResult =
+    const direct =
       raw.result;
 
     if (
-      possibleResult.title ||
-      possibleResult.detected_product
+      direct.title ||
+      direct.detected_product ||
+      direct.full_description ||
+      direct.product_type
     ) {
-
-      return possibleResult;
-
+      return direct;
     }
+  }
 
+  /*
+   * CASE 4:
+   * Entire API response itself
+   * contains product fields
+   */
+  if (
+    typeof raw === 'object' &&
+    (
+      raw.title ||
+      raw.detected_product ||
+      raw.full_description
+    )
+  ) {
+    return raw;
   }
 
   return null;
-
 }
 
 
-/* =====================================
-   ACCEPT META LICENSE
-===================================== */
-
-async function agreeToMetaLicense() {
-
-  const response =
-    await fetch(
-      CLOUDFLARE_URL,
-      {
-
-        method: 'POST',
-
-        headers: {
-
-          Authorization:
-            `Bearer ${CLOUDFLARE_API_TOKEN}`,
-
-          'Content-Type':
-            'application/json'
-
-        },
-
-        body:
-          JSON.stringify({
-            prompt: 'agree'
-          })
-
-      }
-    );
-
-  const data =
-    await response.json();
-
-  console.log(
-    'Meta license response status:',
-    response.status
-  );
-
-  return {
-    status:
-      response.status,
-
-    data
-  };
-
-}
-
-
-/* =====================================
-   LICENSE URL
-===================================== */
-
-app.get(
-  '/api/agree-license',
-  async function(req, res) {
-
-    try {
-
-      const license =
-        await agreeToMetaLicense();
-
-      return res
-        .status(
-          license.status
-        )
-        .json({
-
-          ok:
-            license.status >= 200 &&
-            license.status < 300,
-
-          result:
-            license.data
-
-        });
-
-    } catch (error) {
-
-      console.error(
-        'License error:',
-        error
-      );
-
-      return res
-        .status(500)
-        .json({
-
-          error:
-            'Could not accept model license.'
-
-        });
-
-    }
-
-  }
-);
-
-
-/* =====================================
-   GENERATE PRODUCT DETAILS
-===================================== */
+/* ===========================
+   PRODUCT GENERATOR
+=========================== */
 
 app.post(
   '/api/generate-product-content',
   async function(req, res) {
-
     try {
-
       const {
         imageDataUrl,
         notes = '',
         language = 'English'
       } = req.body || {};
-
-
-      /* --------------------------
-         VALIDATE IMAGE
-      -------------------------- */
 
       if (
         !imageDataUrl ||
@@ -595,334 +419,262 @@ app.post(
           'data:image/'
         )
       ) {
-
         return res
           .status(400)
           .json({
-
             error:
               'Please upload a valid product image.'
-
           });
-
       }
-
 
       if (
         imageDataUrl.length >
         15000000
       ) {
-
         return res
           .status(413)
           .json({
-
             error:
               'Image is too large.'
-
           });
-
       }
 
 
-      /* --------------------------
-         PROMPT
-      -------------------------- */
-
       const prompt = `
-You are a professional Shopify
-e-commerce product listing expert,
-SEO specialist and copywriter.
+You are an expert Shopify product
+listing writer and SEO specialist.
 
 Carefully inspect the uploaded
 product image.
 
-Generate complete Shopify-ready
-product listing information.
+Create complete Shopify-ready
+product information.
 
-OUTPUT LANGUAGE:
+Language:
 ${language}
 
-USER PROVIDED INFORMATION:
-${notes || 'No additional information provided.'}
+Extra information supplied
+by user:
+${notes || 'None'}
 
-IMPORTANT ACCURACY RULES:
+IMPORTANT:
 
-1. Identify the actual product
-shown in the image.
+Return ONLY one valid JSON object.
 
-2. Read visible packaging text
+Do not use markdown.
+
+Do not place JSON inside
+triple backticks.
+
+Do not add explanation before
+or after the JSON.
+
+Use exactly these field names:
+
+{
+  "detected_product": "",
+  "title": "",
+  "short_description": "",
+  "full_description": "",
+  "vendor": "",
+  "product_type": "",
+  "seo_title": "",
+  "meta_description": "",
+  "keywords": [],
+  "tags": [],
+  "key_features": [],
+  "alt_text": "",
+  "handle_suggestion": ""
+}
+
+RULES:
+
+Identify the real product shown
+in the image.
+
+Read visible text and packaging
 carefully.
 
-3. Use a brand name only when
-it is clearly visible in the image
-or supplied by the user.
+Use a brand only if clearly visible.
 
-4. If the brand cannot be
-confirmed, set vendor to "Generic".
+If no brand can be confirmed,
+use "Generic" for vendor.
 
-5. Never invent:
-- brand names
-- model numbers
-- country of manufacture
-- size
-- material
-- ingredients
-- certifications
-- guarantees
-- medical claims
-- technical specifications
+Never invent:
+brand,
+model number,
+size,
+material,
+country of origin,
+ingredients,
+certification,
+guarantee,
+medical claim,
+technical specification.
 
-unless clearly visible in the image
-or explicitly supplied by the user.
+Product Title:
+Professional and SEO friendly.
 
-6. User notes are useful context,
-but do not turn unsupported claims
-into facts.
+Short Description:
+1 to 2 sentences.
 
-CONTENT REQUIREMENTS:
+Full Description:
+Professional Shopify-ready
+product copy.
 
-Product title:
-Professional, attractive and
-SEO-friendly.
+SEO Title:
+Prefer about 50 to 60 characters.
 
-Short description:
-Approximately 1 to 2 sentences.
-
-Full description:
-Useful Shopify product description.
-Professional and easy to read.
-
-SEO title:
-Prefer approximately 50-60
-characters where practical.
-
-Meta description:
-Prefer approximately 140-160
-characters where practical.
+Meta Description:
+Prefer about 140 to 160 characters.
 
 Keywords:
-Generate 12 to 20 useful
-search keywords.
+Generate 12 to 20.
 
-Shopify tags:
-Generate 12 to 20 relevant tags.
+Tags:
+Generate 12 to 20.
 
-Key features:
-Generate approximately 4 to 7
-concise product features.
+Key Features:
+Generate 4 to 7.
 
-ALT text:
-Describe the product image clearly.
+ALT Text:
+Clear product image description.
 
-URL handle:
+Handle:
 Lowercase words separated
-with hyphens.
+by hyphens.
 
-Do not add information outside
-the requested structured fields.
+Return JSON only.
 `;
 
-
-      /* --------------------------
-         CLOUDFLARE REQUEST
-      -------------------------- */
 
       const aiResponse =
         await fetch(
           CLOUDFLARE_URL,
           {
-
             method: 'POST',
 
             headers: {
-
               Authorization:
                 `Bearer ${CLOUDFLARE_API_TOKEN}`,
 
               'Content-Type':
                 'application/json'
-
             },
 
             body:
               JSON.stringify({
-
                 messages: [
-
                   {
-                    role:
-                      'system',
+                    role: 'system',
 
                     content:
-                      'Analyse the product image and produce accurate structured Shopify product data.'
+                      'Analyse product images and return accurate Shopify product data. Return JSON only.'
                   },
 
                   {
-                    role:
-                      'user',
-
-                    content:
-                      prompt
+                    role: 'user',
+                    content: prompt
                   }
-
                 ],
 
                 image:
                   imageDataUrl,
 
-                response_format: {
-
-                  type:
-                    'json_schema',
-
-                  json_schema:
-                    productSchema
-
-                },
-
                 max_tokens:
-                  1600,
+                  1800,
 
                 temperature:
-                  0.1,
+                  0,
 
                 top_p:
-                  0.9,
+                  0.8,
 
                 stream:
                   false
-
               })
-
           }
         );
 
 
-      /* --------------------------
-         READ CLOUDFLARE RESPONSE
-      -------------------------- */
-
       let raw;
 
       try {
-
         raw =
           await aiResponse.json();
-
       } catch (error) {
-
         console.error(
-          'Cloudflare returned non-JSON HTTP response.'
+          'Cloudflare HTTP response was not JSON.'
         );
 
         return res
           .status(502)
           .json({
-
             error:
-              'Cloudflare returned an unreadable response. Please try again.'
-
+              'Cloudflare returned an unreadable response.'
           });
-
       }
 
 
-      /* --------------------------
-         LOG USAGE
-      -------------------------- */
-
       console.log(
-        'Cloudflare HTTP status:',
+        'Cloudflare status:',
         aiResponse.status
       );
+
 
       if (
         raw?.result?.usage
       ) {
-
         console.log(
-          'AI usage:',
+          'Usage:',
           raw.result.usage
         );
-
       }
 
-
-      /* --------------------------
-         HANDLE CLOUDFLARE ERRORS
-      -------------------------- */
 
       if (
         !aiResponse.ok ||
         raw?.success === false
       ) {
-
         console.error(
-          'Cloudflare AI error:',
-          JSON.stringify(raw)
+          'Cloudflare error:',
+          JSON.stringify(
+            raw,
+            null,
+            2
+          )
         );
 
         const errorCode =
           raw?.errors?.[0]?.code;
 
         const errorMessage =
-          raw?.errors?.[0]?.message ||
-          raw?.messages?.[0]?.message ||
+          raw?.errors?.[0]
+            ?.message ||
           'Cloudflare AI generation failed.';
 
 
         if (
           errorCode === 5016
         ) {
-
           return res
             .status(403)
             .json({
-
               error:
-                'Cloudflare model license is not accepted. Open /api/agree-license once.'
-
+                'Cloudflare model license is not accepted.'
             });
-
         }
 
 
         if (
           aiResponse.status === 429
         ) {
-
           return res
             .status(429)
             .json({
-
               error:
-                'Cloudflare free AI daily allowance has been reached. Please try again after the daily reset.'
-
+                'Daily Cloudflare AI free allowance has been reached.'
             });
-
-        }
-
-
-        if (
-          String(
-            errorMessage
-          )
-            .toLowerCase()
-            .includes(
-              'json mode'
-            )
-        ) {
-
-          return res
-            .status(502)
-            .json({
-
-              error:
-                'AI could not produce the structured product information. Please press Generate again.'
-
-            });
-
         }
 
 
@@ -931,89 +683,67 @@ the requested structured fields.
             aiResponse.status || 500
           )
           .json({
-
             error:
               errorMessage
-
           });
-
       }
 
 
-      /* --------------------------
-         EXTRACT STRUCTURED PRODUCT
-      -------------------------- */
+      /*
+       * MOST IMPORTANT FIX
+       */
+
+      console.log(
+        'FULL CLOUDFLARE RESULT:',
+        JSON.stringify(
+          raw?.result,
+          null,
+          2
+        )
+      );
+
 
       const parsed =
         extractProductObject(raw);
 
 
       if (!parsed) {
-
         console.error(
-          'Unable to extract product object.'
-        );
-
-        console.error(
-          JSON.stringify(
-            raw,
-            null,
-            2
-          )
+          'Could not locate product object.'
         );
 
         return res
           .status(502)
           .json({
-
             error:
               'AI response could not be processed. Please try again.'
-
           });
-
       }
 
-
-      /* --------------------------
-         NORMALIZE RESULT
-      -------------------------- */
 
       const result =
         normalizeResult(parsed);
 
 
-      /* --------------------------
-         BASIC VALIDATION
-      -------------------------- */
-
       if (
         !result.title &&
         !result.detected_product
       ) {
-
         console.error(
-          'AI result missing essential product information:',
+          'Parsed result:',
           result
         );
 
         return res
           .status(502)
           .json({
-
             error:
-              'AI could not identify this product clearly. Please upload a clearer image.'
-
+              'AI could not identify this product clearly.'
           });
-
       }
 
 
-      /* --------------------------
-         SUCCESS
-      -------------------------- */
-
       return res.json({
-
         ok: true,
 
         provider:
@@ -1023,40 +753,32 @@ the requested structured fields.
           MODEL,
 
         result
-
       });
 
-
     } catch (error) {
-
       console.error(
-        'Generator server error:',
+        'SERVER ERROR:',
         error
       );
 
       return res
         .status(500)
         .json({
-
           error:
             'Something went wrong while generating product details.'
-
         });
-
     }
-
   }
 );
 
 
-/* =====================================
+/* ===========================
    START SERVER
-===================================== */
+=========================== */
 
 app.listen(
   PORT,
   function() {
-
     console.log(
       `Cloudflare AI Generator running on port ${PORT}`
     );
@@ -1066,8 +788,7 @@ app.listen(
     );
 
     console.log(
-      'JSON structured output enabled.'
+      'Product response parser v3 loaded.'
     );
-
   }
 );

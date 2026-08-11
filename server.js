@@ -245,7 +245,7 @@ async function agreeToMetaLicense() {
   }
 }
 
-app.post(
+app.get(
   '/api/agree-license',
   async function(req, res) {
     try {

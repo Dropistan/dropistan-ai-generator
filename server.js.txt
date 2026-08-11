@@ -1,0 +1,548 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+
+const app = express();
+
+const PORT = Number(
+  process.env.PORT || 3000
+);
+
+const MODEL =
+  process.env.OPENAI_MODEL || 'gpt-5-mini';
+
+const OPENAI_API_KEY =
+  process.env.OPENAI_API_KEY;
+
+if (!OPENAI_API_KEY) {
+  console.error(
+    'OPENAI_API_KEY missing.'
+  );
+  process.exit(1);
+}
+
+const allowedOriginsRaw =
+  process.env.ALLOWED_ORIGINS || '*';
+
+const allowedOrigins =
+  allowedOriginsRaw === '*'
+    ? '*'
+    : allowedOriginsRaw
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false
+  })
+);
+
+app.use(
+  express.json({
+    limit: '16mb'
+  })
+);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+
+      if (
+        !origin ||
+        allowedOrigins === '*' ||
+        allowedOrigins.includes(origin)
+      ) {
+
+        return callback(
+          null,
+          true
+        );
+
+      }
+
+      return callback(
+        new Error(
+          'Origin not allowed'
+        )
+      );
+
+    },
+
+    methods: [
+      'GET',
+      'POST',
+      'OPTIONS'
+    ],
+
+    allowedHeaders: [
+      'Content-Type'
+    ]
+  })
+);
+
+app.get(
+  '/health',
+  function(req, res) {
+
+    res.json({
+      ok: true,
+      service:
+        'Dropistan AI Product Generator'
+    });
+
+  }
+);
+
+const schema = {
+
+  type: 'object',
+
+  additionalProperties: false,
+
+  properties: {
+
+    detected_product: {
+      type: 'string'
+    },
+
+    title: {
+      type: 'string'
+    },
+
+    short_description: {
+      type: 'string'
+    },
+
+    full_description: {
+      type: 'string'
+    },
+
+    vendor: {
+      type: 'string'
+    },
+
+    product_type: {
+      type: 'string'
+    },
+
+    seo_title: {
+      type: 'string'
+    },
+
+    meta_description: {
+      type: 'string'
+    },
+
+    keywords: {
+      type: 'array',
+      items: {
+        type: 'string'
+      }
+    },
+
+    tags: {
+      type: 'array',
+      items: {
+        type: 'string'
+      }
+    },
+
+    key_features: {
+      type: 'array',
+      items: {
+        type: 'string'
+      }
+    },
+
+    alt_text: {
+      type: 'string'
+    },
+
+    handle_suggestion: {
+      type: 'string'
+    }
+
+  },
+
+  required: [
+    'detected_product',
+    'title',
+    'short_description',
+    'full_description',
+    'vendor',
+    'product_type',
+    'seo_title',
+    'meta_description',
+    'keywords',
+    'tags',
+    'key_features',
+    'alt_text',
+    'handle_suggestion'
+  ]
+
+};
+
+function extractOutputText(response) {
+
+  if (
+    typeof response.output_text === 'string' &&
+    response.output_text.trim()
+  ) {
+
+    return response.output_text;
+
+  }
+
+  const texts = [];
+
+  for (
+    const item of response.output || []
+  ) {
+
+    for (
+      const part of item.content || []
+    ) {
+
+      if (
+        typeof part.text === 'string'
+      ) {
+
+        texts.push(part.text);
+
+      }
+
+    }
+
+  }
+
+  return texts.join('\n').trim();
+
+}
+
+function normalizeArray(value) {
+
+  if (Array.isArray(value)) {
+
+    return value
+      .map(String)
+      .map(v => v.trim())
+      .filter(Boolean);
+
+  }
+
+  if (
+    typeof value === 'string'
+  ) {
+
+    return value
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+
+  }
+
+  return [];
+
+}
+
+app.post(
+  '/api/generate-product-content',
+  async function(req, res) {
+
+    try {
+
+      const {
+        imageDataUrl,
+        notes = '',
+        language = 'English'
+      } = req.body || {};
+
+      if (
+        !imageDataUrl ||
+        typeof imageDataUrl !== 'string' ||
+        !imageDataUrl.startsWith(
+          'data:image/'
+        )
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            error:
+              'Please upload a valid product image.'
+          });
+
+      }
+
+      if (
+        imageDataUrl.length >
+        15000000
+      ) {
+
+        return res
+          .status(413)
+          .json({
+            error:
+              'Image is too large.'
+          });
+
+      }
+
+      const prompt = `
+You are a professional Shopify
+e-commerce product copywriter
+and SEO specialist.
+
+Carefully analyse the uploaded
+product image.
+
+Generate complete Shopify
+product listing content.
+
+Output language:
+${language}
+
+Optional user notes:
+${notes || 'None'}
+
+Create:
+
+1. Product Title
+2. Short Description
+3. Full Product Description
+4. Vendor
+5. Product Type
+6. SEO Title
+7. Meta Description
+8. SEO Keywords
+9. Shopify Tags
+10. Key Product Features
+11. Image ALT Text
+12. SEO URL Handle
+
+Important requirements:
+
+Title should be attractive,
+professional and SEO friendly.
+
+Short description should be
+1 to 2 sentences.
+
+Full description should be
+professional and suitable
+for Shopify.
+
+SEO title should ideally be
+50 to 60 characters.
+
+Meta description should ideally
+be 140 to 160 characters.
+
+Generate approximately
+12 to 20 keywords.
+
+Generate approximately
+12 to 20 Shopify tags.
+
+Generate 4 to 7
+product features.
+
+Do not invent brand names,
+model numbers, sizes,
+materials, medical claims,
+technical specifications,
+certifications or guarantees
+unless clearly visible in
+the image or provided by user.
+
+If no brand is visible,
+use Vendor: Generic.
+
+Make content suitable for
+Google search and Shopify SEO.
+`;
+
+      const apiResponse =
+        await fetch(
+          'https://api.openai.com/v1/responses',
+          {
+
+            method: 'POST',
+
+            headers: {
+
+              'Authorization':
+                `Bearer ${OPENAI_API_KEY}`,
+
+              'Content-Type':
+                'application/json'
+
+            },
+
+            body: JSON.stringify({
+
+              model: MODEL,
+
+              input: [
+                {
+
+                  role: 'user',
+
+                  content: [
+
+                    {
+                      type: 'input_text',
+                      text: prompt
+                    },
+
+                    {
+                      type: 'input_image',
+                      image_url:
+                        imageDataUrl,
+                      detail: 'high'
+                    }
+
+                  ]
+
+                }
+              ],
+
+              text: {
+
+                format: {
+
+                  type:
+                    'json_schema',
+
+                  name:
+                    'shopify_product_content',
+
+                  strict: true,
+
+                  schema: schema
+
+                }
+
+              }
+
+            })
+
+          }
+        );
+
+      const raw =
+        await apiResponse.json();
+
+      if (!apiResponse.ok) {
+
+        console.error(
+          'OpenAI error:',
+          raw
+        );
+
+        return res
+          .status(
+            apiResponse.status
+          )
+          .json({
+
+            error:
+              raw?.error?.message ||
+              'AI generation failed.'
+
+          });
+
+      }
+
+      const outputText =
+        extractOutputText(raw);
+
+      if (!outputText) {
+
+        return res
+          .status(502)
+          .json({
+
+            error:
+              'AI returned empty result.'
+
+          });
+
+      }
+
+      let result;
+
+      try {
+
+        result =
+          JSON.parse(outputText);
+
+      } catch (error) {
+
+        console.error(
+          outputText
+        );
+
+        return res
+          .status(502)
+          .json({
+
+            error:
+              'Unexpected AI response.'
+
+          });
+
+      }
+
+      result.keywords =
+        normalizeArray(
+          result.keywords
+        );
+
+      result.tags =
+        normalizeArray(
+          result.tags
+        );
+
+      result.key_features =
+        normalizeArray(
+          result.key_features
+        );
+
+      return res.json({
+
+        ok: true,
+        result: result
+
+      });
+
+    } catch (error) {
+
+      console.error(error);
+
+      return res
+        .status(500)
+        .json({
+
+          error:
+            'Something went wrong.'
+
+        });
+
+    }
+
+  }
+);
+
+app.listen(
+  PORT,
+  function() {
+
+    console.log(
+      `AI Generator running on port ${PORT}`
+    );
+
+  }
+);
